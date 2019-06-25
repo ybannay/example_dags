@@ -1,74 +1,47 @@
-# -*- coding: utf-8 -*-
-#
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-
-"""Example DAG demonstrating the usage of the BashOperator."""
-
-from datetime import timedelta
-
-import airflow
-from airflow.models import DAG
-from airflow.operators.bash_operator import BashOperator
+from airflow import DAG
+from datetime import datetime, timedelta
+from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator
 from airflow.operators.dummy_operator import DummyOperator
 
-args = {
+default_args = {
     'owner': 'airflow',
-    'start_date': airflow.utils.dates.days_ago(2),
+    'depends_on_past': False,
+    'start_date': datetime.utcnow(),
+    'email': ['airflow@example.com'],
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5)
 }
 
 dag = DAG(
-    dag_id='example_bash_operator',
-    default_args=args,
-    schedule_interval='0 0 * * *',
-    dagrun_timeout=timedelta(minutes=60),
-)
+    'kubernetes_sample', default_args=default_args, schedule_interval=timedelta(minutes=10))
 
-run_this_last = DummyOperator(
-    task_id='run_this_last',
-    dag=dag,
-)
+start = DummyOperator(task_id='run_this_first', dag=dag)
 
-# [START howto_operator_bash]
-run_this = BashOperator(
-    task_id='run_after_loop',
-    bash_command='echo 1',
-    dag=dag,
-)
-# [END howto_operator_bash]
+passing = KubernetesPodOperator(namespace='airflow',
+                          image="python:3.6",
+                          cmds=["python","-c"],
+                          arguments=["print('hello world')"],
+                          labels={"foo": "bar"},
+                          name="passing-test",
+                          task_id="passing-task",
+                          get_logs=True,
+                          dag=dag,
+                          in_cluster=True
+                          )
 
-run_this >> run_this_last
+failing = KubernetesPodOperator(namespace='airflow',
+                          image="ubuntu:16.04",
+                          cmds=["python","-c"],
+                          arguments=["print('hello world')"],
+                          labels={"foo": "bar"},
+                          name="fail",
+                          task_id="failing-task",
+                          get_logs=True,
+                          dag=dag,
+                          in_cluster=True
+                          )
 
-for i in range(3):
-    task = BashOperator(
-        task_id='runme_' + str(i),
-        bash_command='echo "{{ task_instance_key_str }}" && sleep 1',
-        dag=dag,
-    )
-    task >> run_this
-
-# [START howto_operator_bash_template]
-also_run_this = BashOperator(
-    task_id='also_run_this',
-    bash_command='echo "run_id={{ run_id }} | dag_run={{ dag_run }}"',
-    dag=dag,
-)
-# [END howto_operator_bash_template]
-also_run_this >> run_this_last
-
-if __name__ == "__main__":
-    dag.cli()
+passing.set_upstream(start)
+failing.set_upstream(start)
