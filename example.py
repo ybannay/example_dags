@@ -1,54 +1,74 @@
-"""
-Code that goes along with the Airflow tutorial located at:
-https://github.com/apache/airflow/blob/master/airflow/example_dags/tutorial.py
-"""
-from airflow import DAG
+# -*- coding: utf-8 -*-
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+"""Example DAG demonstrating the usage of the BashOperator."""
+
+from datetime import timedelta
+
+import airflow
+from airflow.models import DAG
 from airflow.operators.bash_operator import BashOperator
-from datetime import datetime, timedelta
+from airflow.operators.dummy_operator import DummyOperator
 
-
-default_args = {
+args = {
     'owner': 'airflow',
-    'depends_on_past': False,
-    'start_date': datetime(2015, 6, 1),
-    'email': ['airflow@example.com'],
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-    # 'queue': 'bash_queue',
-    # 'pool': 'backfill',
-    # 'priority_weight': 10,
-    # 'end_date': datetime(2016, 1, 1),
+    'start_date': airflow.utils.dates.days_ago(2),
 }
 
-dag = DAG('tutorial', default_args=default_args, schedule_interval=timedelta(days=1))
+dag = DAG(
+    dag_id='example_bash_operator',
+    default_args=args,
+    schedule_interval='0 0 * * *',
+    dagrun_timeout=timedelta(minutes=60),
+)
 
-# t1, t2 and t3 are examples of tasks created by instantiating operators
-t1 = BashOperator(
-    task_id='print_date',
-    bash_command='date',
-    dag=dag)
+run_this_last = DummyOperator(
+    task_id='run_this_last',
+    dag=dag,
+)
 
-t2 = BashOperator(
-    task_id='sleep',
-    bash_command='sleep 5',
-    retries=3,
-    dag=dag)
+# [START howto_operator_bash]
+run_this = BashOperator(
+    task_id='run_after_loop',
+    bash_command='echo 1',
+    dag=dag,
+)
+# [END howto_operator_bash]
 
-templated_command = """
-    {% for i in range(5) %}
-        echo "{{ ds }}"
-        echo "{{ macros.ds_add(ds, 7)}}"
-        echo "{{ params.my_param }}"
-    {% endfor %}
-"""
+run_this >> run_this_last
 
-t3 = BashOperator(
-    task_id='templated',
-    bash_command=templated_command,
-    params={'my_param': 'Parameter I passed in'},
-    dag=dag)
+for i in range(3):
+    task = BashOperator(
+        task_id='runme_' + str(i),
+        bash_command='echo "{{ task_instance_key_str }}" && sleep 1',
+        dag=dag,
+    )
+    task >> run_this
 
-t2.set_upstream(t1)
-t3.set_upstream(t1)
+# [START howto_operator_bash_template]
+also_run_this = BashOperator(
+    task_id='also_run_this',
+    bash_command='echo "run_id={{ run_id }} | dag_run={{ dag_run }}"',
+    dag=dag,
+)
+# [END howto_operator_bash_template]
+also_run_this >> run_this_last
+
+if __name__ == "__main__":
+dag.cli()
