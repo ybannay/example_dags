@@ -71,4 +71,4 @@ also_run_this = BashOperator(
 also_run_this >> run_this_last
 
 if __name__ == "__main__":
-dag.cli()
+    dag.cli()
