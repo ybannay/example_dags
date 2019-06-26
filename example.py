@@ -41,5 +41,4 @@ failing = KubernetesPodOperator(namespace='airflow',
                           in_cluster=True
                           )
 
-passing.set_upstream(start)
-failing.set_upstream(start)
+passing >> failing
