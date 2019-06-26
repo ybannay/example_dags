@@ -1,7 +1,9 @@
+
 from airflow import DAG
 from datetime import datetime, timedelta
 from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator
 from airflow.operators.dummy_operator import DummyOperator
+
 
 default_args = {
     'owner': 'airflow',
@@ -17,28 +19,30 @@ default_args = {
 dag = DAG(
     'kubernetes_sample', default_args=default_args, schedule_interval=timedelta(minutes=10))
 
-passing = KubernetesPodOperator(namespace='airflow',
-                          image="python:3.6",
-                          cmds=["python","-c"],
+
+start = DummyOperator(task_id='run_this_first', dag=dag)
+
+passing = KubernetesPodOperator(namespace='default',
+                          image="Python:3.6",
+                          cmds=["Python","-c"],
                           arguments=["print('hello world')"],
                           labels={"foo": "bar"},
                           name="passing-test",
                           task_id="passing-task",
                           get_logs=True,
-                          dag=dag,
-                          in_cluster=True
+                          dag=dag
                           )
 
-failing = KubernetesPodOperator(namespace='airflow',
-                          image="ubuntu:16.04",
-                          cmds=["python","-c"],
+failing = KubernetesPodOperator(namespace='default',
+                          image="ubuntu:1604",
+                          cmds=["Python","-c"],
                           arguments=["print('hello world')"],
                           labels={"foo": "bar"},
                           name="fail",
                           task_id="failing-task",
                           get_logs=True,
-                          dag=dag,
-                          in_cluster=True
+                          dag=dag
                           )
 
-passing >> failing
+passing.set_upstream(start)
+failing.set_upstream(start)
