@@ -1,48 +1,31 @@
-
+from datetime import datetime
 from airflow import DAG
-from datetime import datetime, timedelta
-from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator
-from airflow.operators.dummy_operator import DummyOperator
+from airflow.operators.docker_operator import DockerOperator
+from airflow.models import Variable
 
-
-default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'start_date': datetime.utcnow(),
-    'email': ['airflow@example.com'],
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5)
-}
+ENV_VARS = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'TR_FTP_HOST', 'TR_FTP_USER', 'TR_FTP_PASS', 'TR_FTP_PATH']
+environment = dict((env_var, Variable.get(env_var)) for env_var in ENV_VARS)
 
 dag = DAG(
-    'kubernetes_sample', default_args=default_args, schedule_interval=timedelta(minutes=10))
+    'tr_esg',
+    description='Thomson Reuters ESG DAG',
+    schedule_interval='0 12 * * *',
+    start_date=datetime(2014, 12, 1)
+)
 
+tr_ftp_to_s3 = DockerOperator(
+    environment=environment,
+    image='064436394451.dkr.ecr.eu-central-1.amazonaws.com/clarity/data/etls/ftp2s3:latest',
+    task_id='tr_ftp_to_s3',
+    dag=dag
+)
 
-start = DummyOperator(task_id='run_this_first', dag=dag)
+tr_load = DockerOperator(
+    environment=environment,
+    image='clarity/tr_load:latest',
+    task_id='tr_load',
+    dag=dag
+)
 
-passing = KubernetesPodOperator(namespace='default',
-                          image="Python:3.6",
-                          cmds=["Python","-c"],
-                          arguments=["print('hello world')"],
-                          labels={"foo": "bar"},
-                          name="passing-test",
-                          task_id="passing-task",
-                          get_logs=True,
-                          dag=dag
-                          )
+tr_ftp_to_s3 >> tr_load
 
-failing = KubernetesPodOperator(namespace='default',
-                          image="ubuntu:1604",
-                          cmds=["Python","-c"],
-                          arguments=["print('hello world')"],
-                          labels={"foo": "bar"},
-                          name="fail",
-                          task_id="failing-task",
-                          get_logs=True,
-                          dag=dag
-                          )
-
-passing.set_upstream(start)
-failing.set_upstream(start)
