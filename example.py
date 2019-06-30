@@ -16,44 +16,59 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""
-from airflow import DAG
-from airflow.operators import BashOperator
-from datetime import datetime, timedelta
-from airflow.operators.docker_operator import DockerOperator
-default_args = {
+
+"""Example DAG demonstrating the usage of the BashOperator."""
+
+from datetime import timedelta
+
+import airflow
+from airflow.models import DAG
+from airflow.operators.bash_operator import BashOperator
+from airflow.operators.dummy_operator import DummyOperator
+
+args = {
     'owner': 'airflow',
-    'depends_on_past': False,
-    'start_date': datetime.utcnow(),
-    'email': ['airflow@example.com'],
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5)
+    'start_date': airflow.utils.dates.days_ago(2),
 }
+
 dag = DAG(
-    'docker_sample', default_args=default_args, schedule_interval=timedelta(minutes=10))
-t1 = BashOperator(
-    task_id='print_date',
-    bash_command='date',
-    dag=dag)
-t2 = BashOperator(
-    task_id='sleep',
-    bash_command='sleep 5',
-    retries=3,
-    dag=dag)
-t3 = DockerOperator(api_version='1.19',
-    docker_url='tcp://localhost:2375', #Set your docker URL
-    command='/bin/sleep 30',
-    image='centos:latest',
-    network_mode='bridge',
-    task_id='docker_op_tester',
-    dag=dag)
-t4 = BashOperator(
-    task_id='print_hello',
-    bash_command='echo "hello world!!!"',
-    dag=dag)
-t1.set_downstream(t2)
-t1.set_downstream(t3)
-t3.set_downstream(t4)
-"""
+    dag_id='example_bash_operator',
+    default_args=args,
+    schedule_interval='0 0 * * *',
+    dagrun_timeout=timedelta(minutes=60),
+)
+
+run_this_last = DummyOperator(
+    task_id='run_this_last',
+    dag=dag,
+)
+
+# [START howto_operator_bash]
+run_this = BashOperator(
+    task_id='run_after_loop',
+    bash_command='echo 1',
+    dag=dag,
+)
+# [END howto_operator_bash]
+
+run_this >> run_this_last
+
+for i in range(3):
+    task = BashOperator(
+        task_id='runme_' + str(i),
+        bash_command='echo "{{ task_instance_key_str }}" && sleep 1',
+        dag=dag,
+    )
+    task >> run_this
+
+# [START howto_operator_bash_template]
+also_run_this = BashOperator(
+    task_id='also_run_this',
+    bash_command='echo "run_id={{ run_id }} | dag_run={{ dag_run }}"',
+    dag=dag,
+)
+# [END howto_operator_bash_template]
+also_run_this >> run_this_last
+
+if __name__ == "__main__":
+dag.cli()
