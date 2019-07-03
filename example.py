@@ -1,47 +1,74 @@
-from airflow import DAG
-from datetime import datetime, timedelta
-from airflow.contrib.operators.kubernetes_pod_operator import KubernetesPodOperator
-from airflow.operators.dummy_operator import DummyOperator
+# -*- coding: utf-8 -*-
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
+"""Example DAG demonstrating the usage of the PythonOperator."""
 
-default_args = {
+import time
+from pprint import pprint
+
+import airflow
+from airflow.models import DAG
+from airflow.operators.python_operator import PythonOperator
+
+args = {
     'owner': 'airflow',
-    'depends_on_past': False,
-    'start_date': datetime.utcnow(),
-    'email': ['airflow@example.com'],
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5)
+    'start_date': airflow.utils.dates.days_ago(2),
 }
 
 dag = DAG(
-    'kubernetes_sample', default_args=default_args, schedule_interval=timedelta(minutes=10))
+    dag_id='example_python_operator',
+    default_args=args,
+    schedule_interval=None,
+)
 
 
-start = DummyOperator(task_id='run_this_first', dag=dag)
+# [START howto_operator_python]
+def print_context(ds, **kwargs):
+    """Print the Airflow context and ds variable from the context."""
+    pprint(kwargs)
+    print(ds)
+    return 'Whatever you return gets printed in the logs'
 
-passing = KubernetesPodOperator(namespace='default',
-                          image="Python:3.6",
-                          cmds=["Python","-c"],
-                          arguments=["print('hello world')"],
-                          labels={"foo": "bar"},
-                          name="passing-test",
-                          task_id="passing-task",
-                          get_logs=True,
-                          dag=dag
-                          )
 
-failing = KubernetesPodOperator(namespace='default',
-                          image="ubuntu:1604",
-                          cmds=["Python","-c"],
-                          arguments=["print('hello world')"],
-                          labels={"foo": "bar"},
-                          name="fail",
-                          task_id="failing-task",
-                          get_logs=True,
-                          dag=dag
-                          )
+run_this = PythonOperator(
+    task_id='print_the_context',
+    provide_context=True,
+    python_callable=print_context,
+    dag=dag,
+)
+# [END howto_operator_python]
 
-passing.set_upstream(start)
-failing.set_upstream(start)
+
+# [START howto_operator_python_kwargs]
+def my_sleeping_function(random_base):
+    """This is a function that will run within the DAG execution"""
+    time.sleep(random_base)
+
+
+# Generate 5 sleeping tasks, sleeping from 0.0 to 0.4 seconds respectively
+for i in range(5):
+    task = PythonOperator(
+        task_id='sleep_for_' + str(i),
+        python_callable=my_sleeping_function,
+        op_kwargs={'random_base': float(i) / 10},
+        dag=dag,
+    )
+
+    run_this >> task
+# [END howto_operator_python_kwargs]
